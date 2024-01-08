@@ -79,7 +79,7 @@ func (dao *PostgresDao) GetUserByEmail(email string) (*models.User, error) {
 }
 
 // CreateCampaign creates a new campaign
-func (dao *PostgresDao) CreateCampaign(ownerID string, campaign models.Campaign) (*models.Campaign, error) {
+func (dao *PostgresDao) AddCampaign(ownerID string, campaign models.Campaign) (*models.Campaign, error) {
 	campaignID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -175,7 +175,49 @@ func (dao *PostgresDao) GetPlayersForCampaign(campaignID string) ([]models.Playe
 	return players, nil
 }
 
-func (dao *PostgresDao) CreateSession(campaignID string, session models.Session) (*models.Session, error) {
+func (dao *PostgresDao) AddCharacter(ownerID string, character models.Character) (*models.Character, error) {
+	characterID, err := uuid.NewUUID()
+	if err != nil {
+		return nil, err
+	}
+	insertStmt := `INSERT INTO Characters(CharacterId, PlayerKey, CharacterName, CharacterLink)
+				   SELECT $1, PlayerKey, $2, $3 
+				   FROM Players WHERE PlayerID = $4`
+	_, err = dao.db.Exec(insertStmt, characterID.String(), character.Name, character.Link, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return &models.Character{
+		OwnerID: ownerID,
+		ID:      characterID.String(),
+		Name:    character.Name,
+		Link:    character.Link,
+	}, nil
+}
+
+func (dao *PostgresDao) GetCharactersForPlayer(playerID string) ([]models.Character, error) {
+	qs := `SELECT c.CharacterId, c.CharacterName, c.CharacterLink. p.PlayerID 
+		   FROM Characters c 
+		   JOIN Players p on p.PlayerKey = c.PlayerKey
+		   WHERE p.PlayerID = $1`
+	rows, err := dao.db.Query(qs, playerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	characters := []models.Character{}
+	for rows.Next() {
+		character := models.Character{}
+		if err = rows.Scan(&character.ID, &character.Name, &character.Link, &character.OwnerID); err != nil {
+			return nil, err
+		}
+		characters = append(characters, character)
+	}
+	return characters, nil
+}
+
+func (dao *PostgresDao) AddSession(campaignID string, session models.Session) (*models.Session, error) {
 	sessionID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -222,7 +264,7 @@ func (dao *PostgresDao) AddTranscriptToSessions(sessionID string, transcript mod
 				   SELECT SessionKey, $1, $2, $3, $4, $5, $6
 				   FROM Sessions 
 				   WHERE SessionId=$7`
-	_, err := dao.db.Exec(insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat, transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String())
+	_, err := dao.db.Exec(insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat.String(), transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String())
 	if err != nil {
 		return nil, err
 	}
@@ -244,15 +286,52 @@ func (dao *PostgresDao) GetTranscriptsForSessions(sessionID string) ([]models.Tr
 	for rows.Next() {
 		transcript := models.Transcript{}
 		statusString := ""
-		if err = rows.Scan(&transcript.JobID, &transcript.AudioLocation, &transcript.TranscriptLocation, &transcript.SummaryLocation, &statusString); err != nil {
+		audioFormatString := ""
+		if err = rows.Scan(&transcript.JobID, &transcript.AudioLocation, &audioFormatString, &transcript.TranscriptLocation, &transcript.SummaryLocation, &statusString); err != nil {
 			return nil, err
 		}
 		transcriptStatus, err := models.TranscriptStatusFromString(statusString)
 		if err != nil {
 			return nil, err
 		}
+		audioFormat, err := models.AudioFormatFromString(audioFormatString)
+		if err != nil {
+			return nil, err
+		}
 		transcript.Status = transcriptStatus
+		transcript.AudioFormat = audioFormat
 		transcripts = append(transcripts, transcript)
 	}
 	return transcripts, nil
+}
+
+func (dao *PostgresDao) GetTranscript(jobID string) (*models.Transcript, error) {
+	qs := `SELECT t.TranscriptionJobId, t.AudioLocation, t.AudioFormat, t.TranscriptLocation, t.SummaryLocation, t.Status 
+		   FROM SessionTranscripts t 
+		   WHERE t.TranscriptionJobId = $1`
+	rows, err := dao.db.Query(qs, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, models.EntityNotFound
+	}
+
+	transcript := models.Transcript{}
+	statusStr := ""
+	audioFormatStr := ""
+	rows.Scan(&transcript.JobID, &transcript.AudioLocation, &audioFormatStr, &transcript.TranscriptLocation, &transcript.SummaryLocation, &statusStr)
+	status, err := models.TranscriptStatusFromString(statusStr)
+	if err != nil {
+		return nil, err
+	}
+	audioFormat, err := models.AudioFormatFromString(audioFormatStr)
+	if err != nil {
+		return nil, err
+	}
+	transcript.Status = status
+	transcript.AudioFormat = audioFormat
+
+	return &transcript, nil
 }

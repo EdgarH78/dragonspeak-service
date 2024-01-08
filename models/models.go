@@ -21,9 +21,10 @@ type Campaign struct {
 
 // Character represents a character in the system.
 type Character struct {
-	PlayerKey     int
-	CharacterName string
-	CharacterLink string
+	OwnerID string
+	ID      string
+	Name    string
+	Link    string
 }
 
 // Session represents a session in the system.
@@ -90,11 +91,38 @@ func TranscriptStatusFromString(str string) (TranscriptStatus, error) {
 	return 0, fmt.Errorf("invalid TranscriptStatus: %s", str)
 }
 
+type AudioFormat int
+
+const (
+	MP3 = iota
+	MP4
+	WAV
+	FLAC
+	AMR
+	OGG
+	WebM
+)
+
+var audioFormatStrings = []string{"MP3", "MP4", "WAV", "FLAC", "AMR", "OGG", "WebM"}
+
+func (a AudioFormat) String() string {
+	return audioFormatStrings[a]
+}
+
+func AudioFormatFromString(str string) (AudioFormat, error) {
+	for i, s := range audioFormatStrings {
+		if strings.EqualFold(s, str) { // Case insensitive comparison
+			return AudioFormat(i), nil
+		}
+	}
+	return 0, fmt.Errorf("invalid AudioFormat: %s", str)
+}
+
 // Transcript represents a session transcript in the system.
 type Transcript struct {
 	JobID              string
 	AudioLocation      string
-	AudioFormat        string
+	AudioFormat        AudioFormat
 	TranscriptLocation string
 	SummaryLocation    string
 	Status             TranscriptStatus

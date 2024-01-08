@@ -31,10 +31,12 @@ VALUES ('StandardPlayer'),
 CREATE TABLE Players(
     PlayerKey SERIAL PRIMARY KEY,
     PlayerID VARCHAR(32) NOT NULL,
+    UserKey INT NOT NULL,
     CampaignKey INT NOT NULL,
     PlayerName VARCHAR(24),
     PlayerType VARCHAR(16) NOT NULL,
     FOREIGN KEY (CampaignKey) REFERENCES Campaigns(CampaignKey),
+    FOREIGN KEY (UserKey) REFERENCES User(UserKey),
     FOREIGN KEY (PlayerType) REFERENCES PlayerType(PlayerType)
 );
 CREATE UNIQUE INDEX players_idx_playerId ON Players(PlayerID);
@@ -42,11 +44,13 @@ CREATE UNIQUE INDEX players_idx_playerName_campaignKey ON Players(PlayerName, Ca
 
 CREATE TABLE Characters(
     CharacterKey SERIAL PRIMARY KEY,
+    CharacterId VARCHAR(32) NOT NULL,
     PlayerKey INT NOT NULL,
     CharacterName VARCHAR(24) NOT NULL,
     CharacterLink VARCHAR(255) NULL,
     FOREIGN KEY (PlayerKey) REFERENCES Players(PlayerKey)
 );
+CREATE UNIQUE INDEX characters_idx_characterId ON Characters(CharacterId);
 
 CREATE TABLE Sessions(
     SessionKey SERIAL PRIMARY KEY,
@@ -89,5 +93,6 @@ CREATE TABLE SessionTranscripts(
     Status VARCHAR(16) NOT NULL,
     FOREIGN KEY (Status) REFERENCES TranscriptionStatus(Status)
 );
+CRATE UNIQUE INDEX sessiontrascripts_idx_transcriptionjobid ON SessionTranscripts(TranscriptionJobId)
 CREATE INDEX sessiontranscripts_idx_status ON SessionTranscripts(Status);
 
