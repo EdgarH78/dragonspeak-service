@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -14,16 +15,16 @@ type MockSessionDB struct {
 	mock.Mock
 }
 
-func (m *MockSessionDB) AddSession(campaignID string, session models.Session) (*models.Session, error) {
-	args := m.Called(campaignID, session)
+func (m *MockSessionDB) AddSession(ctx context.Context, campaignID string, session models.Session) (*models.Session, error) {
+	args := m.Called(ctx, campaignID, session)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.Session), nil
 }
 
-func (m *MockSessionDB) GetSessionsForCampaign(campaignID string) ([]models.Session, error) {
-	args := m.Called(campaignID)
+func (m *MockSessionDB) GetSessionsForCampaign(ctx context.Context, campaignID string) ([]models.Session, error) {
+	args := m.Called(ctx, campaignID)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
@@ -83,12 +84,12 @@ func TestAddSession(t *testing.T) {
 
 			mockDb := &MockSessionDB{}
 			if c.dbError != nil {
-				mockDb.On("AddSession", c.campaignID, c.sessionToAdd).Return(nil, c.dbError)
+				mockDb.On("AddSession", mock.Anything, c.campaignID, c.sessionToAdd).Return(nil, c.dbError)
 			} else {
-				mockDb.On("AddSession", c.campaignID, c.sessionToAdd).Return(c.dbResult, nil)
+				mockDb.On("AddSession", mock.Anything, c.campaignID, c.sessionToAdd).Return(c.dbResult, nil)
 			}
 			testManager := NewSessionManager(mockDb)
-			result, err := testManager.AddSession(c.campaignID, c.sessionToAdd)
+			result, err := testManager.AddSession(context.Background(), c.campaignID, c.sessionToAdd)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return
@@ -164,12 +165,12 @@ func TestGetSessionsForCampaign(t *testing.T) {
 
 			mockDb := &MockSessionDB{}
 			if c.dbError != nil {
-				mockDb.On("GetSessionsForCampaign", c.campaignID).Return(nil, c.dbError)
+				mockDb.On("GetSessionsForCampaign", mock.Anything, c.campaignID).Return(nil, c.dbError)
 			} else {
-				mockDb.On("GetSessionsForCampaign", c.campaignID).Return(c.dbResult, nil)
+				mockDb.On("GetSessionsForCampaign", mock.Anything, c.campaignID).Return(c.dbResult, nil)
 			}
 			testManager := NewSessionManager(mockDb)
-			result, err := testManager.GetSessionsForCampaign(c.campaignID)
+			result, err := testManager.GetSessionsForCampaign(context.Background(), c.campaignID)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return

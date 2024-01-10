@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -17,9 +18,9 @@ type fileStore interface {
 }
 
 type transcriptionDb interface {
-	AddTranscriptToSessions(sessionID string, transcript models.Transcript) (*models.Transcript, error)
-	GetTranscriptsForSessions(sessionID string) ([]models.Transcript, error)
-	GetTranscript(jobID string) (*models.Transcript, error)
+	AddTranscriptToSession(ctx context.Context, sessionID string, transcript models.Transcript) (*models.Transcript, error)
+	GetTranscriptsForSession(ctx context.Context, sessionID string) ([]models.Transcript, error)
+	GetTranscript(ctx context.Context, jobID string) (*models.Transcript, error)
 }
 
 type uuidProvider interface {
@@ -44,7 +45,7 @@ func NewTranscriptionManager(bucket string, transcriptionProvider transcriptionP
 	}
 }
 
-func (t *TranscriptionManager) SubmitTranscriptionJob(userID, campaignID, sessionID string, audioFormat models.AudioFormat, audioFile io.Reader) (*models.Transcript, error) {
+func (t *TranscriptionManager) SubmitTranscriptionJob(ctx context.Context, userID, campaignID, sessionID string, audioFormat models.AudioFormat, audioFile io.Reader) (*models.Transcript, error) {
 	jobID := fmt.Sprintf("%s-%s", sessionID, t.uuidProvider.NewUUID())
 	audioLocation := fmt.Sprintf("%s/%s/%s/audio-%s", userID, campaignID, sessionID, t.uuidProvider.NewUUID())
 	transcriptLocation := fmt.Sprintf("%s/%s/%s/transcript-%s", userID, campaignID, sessionID, t.uuidProvider.NewUUID())
@@ -56,7 +57,7 @@ func (t *TranscriptionManager) SubmitTranscriptionJob(userID, campaignID, sessio
 		Status:             models.Transcribing,
 	}
 
-	_, err := t.transcriptionDb.AddTranscriptToSessions(sessionID, transcriptionJob)
+	_, err := t.transcriptionDb.AddTranscriptToSession(ctx, sessionID, transcriptionJob)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +73,22 @@ func (t *TranscriptionManager) SubmitTranscriptionJob(userID, campaignID, sessio
 	return &transcriptionJob, nil
 }
 
-func (t *TranscriptionManager) GetTranscriptJob(jobID string) (*models.Transcript, error) {
-	return nil, fmt.Errorf("not implemented")
+func (t *TranscriptionManager) GetTranscriptJob(ctx context.Context, jobID string) (*models.Transcript, error) {
+	return t.transcriptionDb.GetTranscript(ctx, jobID)
 }
 
-func (t *TranscriptionManager) DownloadTranscript(jobID string, w io.WriterAt) error {
-	return fmt.Errorf("not implemented")
+func (t *TranscriptionManager) GetTranscriptsForSession(ctx context.Context, sessionID string) ([]models.Transcript, error) {
+	return t.transcriptionDb.GetTranscriptsForSession(ctx, sessionID)
+}
+
+func (t *TranscriptionManager) DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) error {
+	transcript, err := t.transcriptionDb.GetTranscript(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	_, err = t.fileStore.DownloadData(t.bucket, transcript.TranscriptLocation, w)
+	if err != nil {
+		return err
+	}
+	return nil
 }

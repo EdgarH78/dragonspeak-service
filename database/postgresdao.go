@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -42,12 +43,12 @@ func NewPostgresDao(config SQLConfig) (*PostgresDao, error) {
 }
 
 // AddNewUser adds a new user to the Users table
-func (dao *PostgresDao) AddNewUser(user models.User) (*models.User, error) {
+func (dao *PostgresDao) AddNewUser(ctx context.Context, user models.User) (*models.User, error) {
 	userID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
 	}
-	_, err = dao.db.Exec("INSERT INTO Users (UserId, Handle, Email) VALUES ($1, $2, $3)", userID.String(), user.Handle, user.Email)
+	_, err = dao.db.ExecContext(ctx, "INSERT INTO Users (UserId, Handle, Email) VALUES ($1, $2, $3)", userID.String(), user.Handle, user.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +59,11 @@ func (dao *PostgresDao) AddNewUser(user models.User) (*models.User, error) {
 	}, nil
 }
 
-func (dao *PostgresDao) GetUserByEmail(email string) (*models.User, error) {
+func (dao *PostgresDao) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	qs := `SELECT UserId, Handle, Email
 			FROM Users
 			WHERE Email = $1`
-	rows, err := dao.db.Query(qs, email)
+	rows, err := dao.db.QueryContext(ctx, qs, email)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func (dao *PostgresDao) GetUserByEmail(email string) (*models.User, error) {
 }
 
 // CreateCampaign creates a new campaign
-func (dao *PostgresDao) AddCampaign(ownerID string, campaign models.Campaign) (*models.Campaign, error) {
+func (dao *PostgresDao) AddCampaign(ctx context.Context, ownerID string, campaign models.Campaign) (*models.Campaign, error) {
 	campaignID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -89,7 +90,7 @@ func (dao *PostgresDao) AddCampaign(ownerID string, campaign models.Campaign) (*
 					FROM Users
 					WHERE UserId=$4`
 
-	_, err = dao.db.Exec(insertStmt, campaignID.String(), campaign.Name, campaign.Link, ownerID)
+	_, err = dao.db.ExecContext(ctx, insertStmt, campaignID.String(), campaign.Name, campaign.Link, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +102,13 @@ func (dao *PostgresDao) AddCampaign(ownerID string, campaign models.Campaign) (*
 }
 
 // GetAllCampaignsForUser retrieves all campaigns for a specific user
-func (dao *PostgresDao) GetCampaignsForUser(ownerID string) ([]models.Campaign, error) {
+func (dao *PostgresDao) GetCampaignsForUser(ctx context.Context, ownerID string) ([]models.Campaign, error) {
 	qs := ` SELECT c.CampaignId, c.CampaignName, c.CampaignLink
 			FROM Campaign c
 			JOIN Users u on u.UserKey=c.OwnerUserId
 			WHERE u.UserId=$1
 	`
-	rows, err := dao.db.Query(qs, ownerID)
+	rows, err := dao.db.QueryContext(ctx, qs, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +127,7 @@ func (dao *PostgresDao) GetCampaignsForUser(ownerID string) ([]models.Campaign, 
 }
 
 // AddNewPlayer adds a new player to the Players table
-func (dao *PostgresDao) AddNewPlayer(campaignID string, player models.Player) (*models.Player, error) {
+func (dao *PostgresDao) AddNewPlayer(ctx context.Context, campaignID string, player models.Player) (*models.Player, error) {
 	playerID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -135,7 +136,7 @@ func (dao *PostgresDao) AddNewPlayer(campaignID string, player models.Player) (*
 					SELECT CampaignKey, $1, $2, $3 
 					FROM Campaigns
 					WHERE CampaignId=$4`
-	_, err = dao.db.Exec(insertStmt, playerID.String(), player.Name, player.Type.String(), campaignID)
+	_, err = dao.db.ExecContext(ctx, insertStmt, playerID.String(), player.Name, player.Type.String(), campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +147,13 @@ func (dao *PostgresDao) AddNewPlayer(campaignID string, player models.Player) (*
 	}, nil
 }
 
-func (dao *PostgresDao) GetPlayersForCampaign(campaignID string) ([]models.Player, error) {
+func (dao *PostgresDao) GetPlayersForCampaign(ctx context.Context, campaignID string) ([]models.Player, error) {
 	qs := `SELECT p.PlayerID, p.PlayerName, p.PlayerType 
 		   FROM Players p 
 		   JOIN Campaign c on c.CampaignKey=p.CampaignKey 
 		   WHERE c.CampaignId = $1`
 
-	rows, err := dao.db.Query(qs, campaignID)
+	rows, err := dao.db.QueryContext(ctx, qs, campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +176,7 @@ func (dao *PostgresDao) GetPlayersForCampaign(campaignID string) ([]models.Playe
 	return players, nil
 }
 
-func (dao *PostgresDao) AddCharacter(ownerID string, character models.Character) (*models.Character, error) {
+func (dao *PostgresDao) AddCharacter(ctx context.Context, ownerID string, character models.Character) (*models.Character, error) {
 	characterID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -183,7 +184,7 @@ func (dao *PostgresDao) AddCharacter(ownerID string, character models.Character)
 	insertStmt := `INSERT INTO Characters(CharacterId, PlayerKey, CharacterName, CharacterLink)
 				   SELECT $1, PlayerKey, $2, $3 
 				   FROM Players WHERE PlayerID = $4`
-	_, err = dao.db.Exec(insertStmt, characterID.String(), character.Name, character.Link, ownerID)
+	_, err = dao.db.ExecContext(ctx, insertStmt, characterID.String(), character.Name, character.Link, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,12 +196,12 @@ func (dao *PostgresDao) AddCharacter(ownerID string, character models.Character)
 	}, nil
 }
 
-func (dao *PostgresDao) GetCharactersForPlayer(playerID string) ([]models.Character, error) {
+func (dao *PostgresDao) GetCharactersForPlayer(ctx context.Context, playerID string) ([]models.Character, error) {
 	qs := `SELECT c.CharacterId, c.CharacterName, c.CharacterLink. p.PlayerID 
 		   FROM Characters c 
 		   JOIN Players p on p.PlayerKey = c.PlayerKey
 		   WHERE p.PlayerID = $1`
-	rows, err := dao.db.Query(qs, playerID)
+	rows, err := dao.db.QueryContext(ctx, qs, playerID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +218,7 @@ func (dao *PostgresDao) GetCharactersForPlayer(playerID string) ([]models.Charac
 	return characters, nil
 }
 
-func (dao *PostgresDao) AddSession(campaignID string, session models.Session) (*models.Session, error) {
+func (dao *PostgresDao) AddSession(ctx context.Context, campaignID string, session models.Session) (*models.Session, error) {
 	sessionID, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
@@ -225,7 +226,7 @@ func (dao *PostgresDao) AddSession(campaignID string, session models.Session) (*
 	insertStmt := `INSERT INTO Sessions(SessionId, CampaignKey, SessionDate, Title) 
 				  SELECT $1, CampaignKey, $2, $3 
 				  FROM Campaigns WHERE CampaignId=$4`
-	_, err = dao.db.Exec(insertStmt, sessionID.String(), session.SessionDate, session.Title, campaignID)
+	_, err = dao.db.ExecContext(ctx, insertStmt, sessionID.String(), session.SessionDate, session.Title, campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,13 +237,13 @@ func (dao *PostgresDao) AddSession(campaignID string, session models.Session) (*
 	}, nil
 }
 
-func (dao *PostgresDao) GetSessionsForCampaign(campaignID string) ([]models.Session, error) {
+func (dao *PostgresDao) GetSessionsForCampaign(ctx context.Context, campaignID string) ([]models.Session, error) {
 	qs := `SELECT s.SessionId, s.SessionDate, s.Title
 		   FROM Sessions s 
 		   JOIN Campaign c ON c.CampaignKey = s.CampaignKey 
 		   WHERE c.CampaignId = $1`
 
-	rows, err := dao.db.Query(qs, campaignID)
+	rows, err := dao.db.QueryContext(ctx, qs, campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,24 +260,24 @@ func (dao *PostgresDao) GetSessionsForCampaign(campaignID string) ([]models.Sess
 	return sessions, nil
 }
 
-func (dao *PostgresDao) AddTranscriptToSessions(sessionID string, transcript models.Transcript) (*models.Transcript, error) {
+func (dao *PostgresDao) AddTranscriptToSession(ctx context.Context, sessionID string, transcript models.Transcript) (*models.Transcript, error) {
 	insertStmt := `INSERT INTO SessionTranscripts(SessionId, TranscriptionJobId, AudioLocation, AudioFormat, TranscriptLocation, SummaryLocation, Status)
 				   SELECT SessionKey, $1, $2, $3, $4, $5, $6
 				   FROM Sessions 
 				   WHERE SessionId=$7`
-	_, err := dao.db.Exec(insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat.String(), transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String())
+	_, err := dao.db.ExecContext(ctx, insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat.String(), transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String())
 	if err != nil {
 		return nil, err
 	}
 	return &transcript, nil
 }
 
-func (dao *PostgresDao) GetTranscriptsForSessions(sessionID string) ([]models.Transcript, error) {
+func (dao *PostgresDao) GetTranscriptsForSession(ctx context.Context, sessionID string) ([]models.Transcript, error) {
 	qs := `SELECT t.TranscriptionJobId, t.AudioLocation, t.AudioFormat, t.TranscriptLocation, t.SummaryLocation, t.Status 
 		   FROM SessionTranscripts t 
 		   JOIN Sessions s on s.SessionKey = t.SessionId 
 		   WHERE s.SessionId=$1`
-	rows, err := dao.db.Query(qs, sessionID)
+	rows, err := dao.db.QueryContext(ctx, qs, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -305,11 +306,11 @@ func (dao *PostgresDao) GetTranscriptsForSessions(sessionID string) ([]models.Tr
 	return transcripts, nil
 }
 
-func (dao *PostgresDao) GetTranscript(jobID string) (*models.Transcript, error) {
+func (dao *PostgresDao) GetTranscript(ctx context.Context, jobID string) (*models.Transcript, error) {
 	qs := `SELECT t.TranscriptionJobId, t.AudioLocation, t.AudioFormat, t.TranscriptLocation, t.SummaryLocation, t.Status 
 		   FROM SessionTranscripts t 
 		   WHERE t.TranscriptionJobId = $1`
-	rows, err := dao.db.Query(qs, jobID)
+	rows, err := dao.db.QueryContext(ctx, qs, jobID)
 	if err != nil {
 		return nil, err
 	}

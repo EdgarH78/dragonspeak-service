@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,16 +14,16 @@ type MockUserDb struct {
 	mock.Mock
 }
 
-func (m *MockUserDb) AddNewUser(user models.User) (*models.User, error) {
-	args := m.Called(user)
+func (m *MockUserDb) AddNewUser(ctx context.Context, user models.User) (*models.User, error) {
+	args := m.Called(ctx, user)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockUserDb) GetUserByEmail(email string) (*models.User, error) {
-	args := m.Called(email)
+func (m *MockUserDb) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	args := m.Called(ctx, email)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
@@ -87,12 +88,12 @@ func TestAddNewUser(t *testing.T) {
 
 			mockDb := &MockUserDb{}
 			if c.dbError != nil {
-				mockDb.On("AddNewUser", c.userToAdd).Return(nil, c.dbError)
+				mockDb.On("AddNewUser", mock.Anything, c.userToAdd).Return(nil, c.dbError)
 			} else {
-				mockDb.On("AddNewUser", c.userToAdd).Return(c.dbResult, nil)
+				mockDb.On("AddNewUser", mock.Anything, c.userToAdd).Return(c.dbResult, nil)
 			}
 			testManager := NewUserManager(mockDb)
-			result, err := testManager.AddNewUser(c.userToAdd)
+			result, err := testManager.AddNewUser(context.Background(), c.userToAdd)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return
@@ -154,12 +155,12 @@ func TestGetUserByEmail(t *testing.T) {
 
 			mockDb := &MockUserDb{}
 			if c.dbError != nil {
-				mockDb.On("GetUserByEmail", c.email).Return(nil, c.dbError)
+				mockDb.On("GetUserByEmail", mock.Anything, c.email).Return(nil, c.dbError)
 			} else {
-				mockDb.On("GetUserByEmail", c.email).Return(c.dbResult, nil)
+				mockDb.On("GetUserByEmail", mock.Anything, c.email).Return(c.dbResult, nil)
 			}
 			testManager := NewUserManager(mockDb)
-			result, err := testManager.GetUserByEmail(c.email)
+			result, err := testManager.GetUserByEmail(context.Background(), c.email)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return

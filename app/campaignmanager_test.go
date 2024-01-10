@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,16 +14,16 @@ type MockCampaignDB struct {
 	mock.Mock
 }
 
-func (m *MockCampaignDB) AddCampaign(ownerID string, campaign models.Campaign) (*models.Campaign, error) {
-	args := m.Called(ownerID, campaign)
+func (m *MockCampaignDB) AddCampaign(ctx context.Context, ownerID string, campaign models.Campaign) (*models.Campaign, error) {
+	args := m.Called(ctx, ownerID, campaign)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.Campaign), nil
 }
 
-func (m *MockCampaignDB) GetCampaignsForUser(ownerID string) ([]models.Campaign, error) {
-	args := m.Called(ownerID)
+func (m *MockCampaignDB) GetCampaignsForUser(ctx context.Context, ownerID string) ([]models.Campaign, error) {
+	args := m.Called(ctx, ownerID)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
 	}
@@ -85,12 +86,12 @@ func TestAddCampaign(t *testing.T) {
 
 			mockDb := &MockCampaignDB{}
 			if c.dbError != nil {
-				mockDb.On("AddCampaign", c.userID, c.campaignToAdd).Return(nil, c.dbError)
+				mockDb.On("AddCampaign", mock.Anything, c.userID, c.campaignToAdd).Return(nil, c.dbError)
 			} else {
-				mockDb.On("AddCampaign", c.userID, c.campaignToAdd).Return(c.dbResult, nil)
+				mockDb.On("AddCampaign", mock.Anything, c.userID, c.campaignToAdd).Return(c.dbResult, nil)
 			}
 			testManager := NewCampaignManager(mockDb)
-			result, err := testManager.AddCampaign(c.userID, c.campaignToAdd)
+			result, err := testManager.AddCampaign(context.Background(), c.userID, c.campaignToAdd)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return
@@ -166,12 +167,12 @@ func TestCampaignsForUser(t *testing.T) {
 
 			mockDb := &MockCampaignDB{}
 			if c.dbError != nil {
-				mockDb.On("GetCampaignsForUser", c.userID).Return(nil, c.dbError)
+				mockDb.On("GetCampaignsForUser", mock.Anything, c.userID).Return(nil, c.dbError)
 			} else {
-				mockDb.On("GetCampaignsForUser", c.userID).Return(c.dbResult, nil)
+				mockDb.On("GetCampaignsForUser", mock.Anything, c.userID).Return(c.dbResult, nil)
 			}
 			testManager := NewCampaignManager(mockDb)
-			result, err := testManager.GetCampaignsForUser(c.userID)
+			result, err := testManager.GetCampaignsForUser(context.Background(), c.userID)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return
