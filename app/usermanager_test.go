@@ -30,6 +30,14 @@ func (m *MockUserDb) GetUserByEmail(ctx context.Context, email string) (*models.
 	return args.Get(0).(*models.User), nil
 }
 
+func (m *MockUserDb) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	args := m.Called(ctx, userID)
+	if args.Error(1) != nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.User), nil
+}
+
 func TestAddNewUser(t *testing.T) {
 	dbError := errors.New("db error")
 	cases := []struct {
@@ -161,6 +169,73 @@ func TestGetUserByEmail(t *testing.T) {
 			}
 			testManager := NewUserManager(mockDb)
 			result, err := testManager.GetUserByEmail(context.Background(), c.email)
+			if err != nil && c.expectedError == nil {
+				t.Errorf("unexpected error returned: %s", err)
+				return
+			}
+
+			if c.expectedResult != nil {
+				assert.Equal(t, c.expectedResult.Handle, result.Handle)
+				assert.Equal(t, c.expectedResult.Email, result.Email)
+				assert.Equal(t, c.expectedResult.ID, result.ID)
+			}
+			if c.expectedError != nil {
+				if err == nil {
+					t.Errorf("expected error: %s got nil", c.expectedError)
+					return
+				}
+				if !errors.Is(err, c.expectedError) {
+					t.Errorf("expected error: %s got %s", c.expectedError, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGetUserByID(t *testing.T) {
+	dbError := errors.New("db error")
+	cases := []struct {
+		description    string
+		userID         string
+		dbError        error
+		dbResult       *models.User
+		expectedError  error
+		expectedResult *models.User
+	}{
+		{
+			description: "user is retrieved",
+			userID:      "abc123",
+			dbResult: &models.User{
+				ID:     "abc123",
+				Handle: "testUser",
+				Email:  "test@test.com",
+			},
+			expectedResult: &models.User{
+				ID:     "abc123",
+				Handle: "testUser",
+				Email:  "test@test.com",
+			},
+		},
+		{
+			description:   "database returns error",
+			userID:        "abc123",
+			dbError:       dbError,
+			expectedError: dbError,
+		},
+	}
+
+	// Iterate through test cases
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+
+			mockDb := &MockUserDb{}
+			if c.dbError != nil {
+				mockDb.On("GetUserByID", mock.Anything, c.userID).Return(nil, c.dbError)
+			} else {
+				mockDb.On("GetUserByID", mock.Anything, c.userID).Return(c.dbResult, nil)
+			}
+			testManager := NewUserManager(mockDb)
+			result, err := testManager.GetUserByID(context.Background(), c.userID)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return

@@ -81,7 +81,7 @@ func TranscriptResponseFromTranscript(transcript *models.Transcript) TranscriptR
 
 type userManager interface {
 	AddNewUser(ctx context.Context, user models.User) (*models.User, error)
-	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
+	GetUserByID(ctx context.Context, email string) (*models.User, error)
 }
 
 type campaignManager interface {
@@ -132,6 +132,9 @@ func (api *HttpAPI) Run() {
 
 func (api *HttpAPI) registerHandlers() {
 	api.engine.POST(baseUrl+"/v1/users", api.AddUser)
+	api.engine.GET(baseUrl+"/v1/users/:userId", api.GetUserByID)
+	api.engine.POST(baseUrl+"/v1/users/:userId/campaigns", api.AddCampaign)
+	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns", api.GetCampaigns)
 }
 
 func (api *HttpAPI) AddUser(c *gin.Context) {
@@ -145,13 +148,55 @@ func (api *HttpAPI) AddUser(c *gin.Context) {
 	}
 	addedUser, err := api.userManager.AddNewUser(c.Request.Context(), user.toUser())
 	if err != nil {
-		handlError(c, err)
+		handleError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, UserResponseFromUser(addedUser))
 }
 
-func handlError(c *gin.Context, err error) {
+func (api *HttpAPI) GetUserByID(c *gin.Context) {
+	userID := c.Param("userId")
+	user, err := api.userManager.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, UserResponseFromUser(user))
+}
+
+func (api *HttpAPI) AddCampaign(c *gin.Context) {
+	userID := c.Param("userId")
+	var campaign CreateCampaignRequest
+	err := json.NewDecoder(c.Request.Body).Decode(&campaign)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, ErrorResponse{
+			ErrorMessage: "Request body is in the incorrect format",
+		})
+		return
+	}
+	addedCampaign, err := api.campaignManager.AddCampaign(c.Request.Context(), userID, campaign.toCampaign())
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, CampaignResponseFromCampaign(addedCampaign))
+}
+
+func (api *HttpAPI) GetCampaigns(c *gin.Context) {
+	userID := c.Param("userId")
+	campaigns, err := api.campaignManager.GetCampaignsForUser(c.Request.Context(), userID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	response := []CampaignResponse{}
+	for _, campaign := range campaigns {
+		response = append(response, CampaignResponseFromCampaign(&campaign))
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func handleError(c *gin.Context, err error) {
 	if errors.Is(err, models.EntityNotFound) {
 		c.JSON(http.StatusNotFound, ErrorResponse{
 			ErrorMessage: "Not Found",

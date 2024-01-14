@@ -79,6 +79,26 @@ func (dao *PostgresDao) GetUserByEmail(ctx context.Context, email string) (*mode
 	return &user, nil
 }
 
+func (dao *PostgresDao) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	qs := `SELECT UesrId, Handle, Email
+			FROM Users
+			WHERE UserId=$1`
+	rows, err := dao.db.QueryContext(ctx, qs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, models.EntityNotFound
+	}
+
+	user := models.User{}
+	if err = rows.Scan(&user.ID, &user.Handle, &user.Email); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // CreateCampaign creates a new campaign
 func (dao *PostgresDao) AddCampaign(ctx context.Context, ownerID string, campaign models.Campaign) (*models.Campaign, error) {
 	campaignID, err := uuid.NewUUID()

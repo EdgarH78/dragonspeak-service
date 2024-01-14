@@ -10,6 +10,7 @@ import (
 type userDb interface {
 	AddNewUser(ctx context.Context, user models.User) (*models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
+	GetUserByID(ctx context.Context, userID string) (*models.User, error)
 }
 
 type UserManager struct {
@@ -30,6 +31,10 @@ func (u *UserManager) AddNewUser(ctx context.Context, user models.User) (*models
 		return nil, fmt.Errorf("missing field: Handle %w", models.InvalidEntity)
 	}
 	return u.userDb.AddNewUser(ctx, user)
+}
+
+func (u *UserManager) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	return u.userDb.GetUserByID(ctx, userID)
 }
 
 func (u *UserManager) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {

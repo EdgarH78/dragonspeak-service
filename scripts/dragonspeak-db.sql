@@ -93,6 +93,6 @@ CREATE TABLE SessionTranscripts(
     Status VARCHAR(16) NOT NULL,
     FOREIGN KEY (Status) REFERENCES TranscriptionStatus(Status)
 );
-CRATE UNIQUE INDEX sessiontrascripts_idx_transcriptionjobid ON SessionTranscripts(TranscriptionJobId)
+CREATE UNIQUE INDEX sessiontrascripts_idx_transcriptionjobid ON SessionTranscripts(TranscriptionJobId);
 CREATE INDEX sessiontranscripts_idx_status ON SessionTranscripts(Status);
 
