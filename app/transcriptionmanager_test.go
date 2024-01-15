@@ -169,24 +169,24 @@ func TestSubmitTranscriptionJob(t *testing.T) {
 			fileContent: "testaudio",
 			audioPath:   "user1/campaign1/session0/audio-testUUID",
 			expectedDbRecord: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 			dbResult: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 			expectedResult: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 		},
@@ -197,14 +197,14 @@ func TestSubmitTranscriptionJob(t *testing.T) {
 			sessionID:     "session0",
 			audioFormat:   models.MP3,
 			fileContent:   "testaudio",
-			audioPath:     "user1/campaign1/session0/audio-testUUID",
+			audioPath:     "audio-testUUID",
 			dbError:       dbError,
 			expectedError: dbError,
 			expectedDbRecord: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 		},
@@ -215,21 +215,21 @@ func TestSubmitTranscriptionJob(t *testing.T) {
 			sessionID:          "session0",
 			audioFormat:        models.MP3,
 			fileContent:        "testaudio",
-			audioPath:          "user1/campaign1/session0/audio-testUUID",
+			audioPath:          "audio-testUUID",
 			transcriptionError: transcriptionJobError,
 			expectedError:      transcriptionJobError,
 			dbResult: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript/transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 			expectedDbRecord: &models.Transcript{
-				JobID:              "session0-testUUID",
-				AudioLocation:      "user1/campaign1/session0/audio-testUUID",
+				JobID:              "testUUID",
+				AudioLocation:      "audio-testUUID",
 				AudioFormat:        models.MP3,
-				TranscriptLocation: "user1/campaign1/session0/transcript-testUUID",
+				TranscriptLocation: "transcript-testUUID",
 				Status:             models.Transcribing,
 			},
 		},
@@ -557,7 +557,7 @@ func TestDownloadTranscript(t *testing.T) {
 			testManager := NewTranscriptionManager(testBucket, mockTranscriptionProvider, mockFileStore, mockDb, mockUUIDProver)
 
 			bufferWriter := NewBufferWriterAt(len([]byte(c.filecontent)))
-			err := testManager.DownloadTranscript(context.Background(), c.jobID, bufferWriter)
+			_, err := testManager.DownloadTranscript(context.Background(), c.jobID, bufferWriter)
 			if err != nil && c.expectedError == nil {
 				t.Errorf("unexpected error returned: %s", err)
 				return

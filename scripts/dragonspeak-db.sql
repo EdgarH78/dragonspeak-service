@@ -2,7 +2,7 @@ use dragonspeak-db;
 
 CREATE TABLE Users(
     UserKey SERIAL PRIMARY KEY,
-    UserId VARCHAR(32) NOT NULL,
+    UserId VARCHAR(64) NOT NULL,
     Handle VARCHAR(24) NOT NULL,
     Email VARCHAR(64) NOT NULL
 );
@@ -12,7 +12,7 @@ CREATE UNIQUE INDEX users_idx_email ON Users(Email);
 
 CREATE TABLE Campaigns(
     CampaignKey SERIAL PRIMARY KEY,
-    CampaignId VARCHAR(32) NOT NULL,
+    CampaignId VARCHAR(64) NOT NULL,
     OwnerUserId INT NOT NULL,
     CampaignName VARCHAR(24) NOT NULL,
     CampaignLink VARCHAR(255) NULL,
@@ -30,7 +30,7 @@ VALUES ('StandardPlayer'),
 
 CREATE TABLE Players(
     PlayerKey SERIAL PRIMARY KEY,
-    PlayerID VARCHAR(32) NOT NULL,
+    PlayerID VARCHAR(64) NOT NULL,
     UserKey INT NOT NULL,
     CampaignKey INT NOT NULL,
     PlayerName VARCHAR(24),
@@ -44,7 +44,7 @@ CREATE UNIQUE INDEX players_idx_playerName_campaignKey ON Players(PlayerName, Ca
 
 CREATE TABLE Characters(
     CharacterKey SERIAL PRIMARY KEY,
-    CharacterId VARCHAR(32) NOT NULL,
+    CharacterId VARCHAR(64) NOT NULL,
     PlayerKey INT NOT NULL,
     CharacterName VARCHAR(24) NOT NULL,
     CharacterLink VARCHAR(255) NULL,
@@ -54,7 +54,7 @@ CREATE UNIQUE INDEX characters_idx_characterId ON Characters(CharacterId);
 
 CREATE TABLE Sessions(
     SessionKey SERIAL PRIMARY KEY,
-    SessionId VARCHAR(32) NOT NULL,
+    SessionId VARCHAR(64) NOT NULL,
     CampaignKey INT NOT NULL,
     SessionDate DATE NOT NULL,
     Title VARCHAR(24) NULL,  
@@ -92,6 +92,7 @@ CREATE TABLE SessionTranscripts(
     SummaryLocation VARCHAR(128) NULL,
     Status VARCHAR(16) NOT NULL,
     FOREIGN KEY (Status) REFERENCES TranscriptionStatus(Status)
+    FOREIGN KEY (SessionId) REFERENCES Sessions(SessionKey)
 );
 CREATE UNIQUE INDEX sessiontrascripts_idx_transcriptionjobid ON SessionTranscripts(TranscriptionJobId);
 CREATE INDEX sessiontranscripts_idx_status ON SessionTranscripts(Status);

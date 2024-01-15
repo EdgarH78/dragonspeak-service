@@ -40,12 +40,14 @@ func statusFromString(str string) (TranscriptionJobStatus, error) {
 }
 
 type AmazonTranscription struct {
-	svc *transcribeservice.TranscribeService
+	svc          *transcribeservice.TranscribeService
+	outputBucket string
 }
 
-func NewAmazonTranscription(sess *session.Session) *AmazonTranscription {
+func NewAmazonTranscription(sess *session.Session, outputBucket string) *AmazonTranscription {
 	return &AmazonTranscription{
-		svc: transcribeservice.New(sess),
+		svc:          transcribeservice.New(sess),
+		outputBucket: outputBucket,
 	}
 }
 
@@ -60,9 +62,13 @@ func (t *AmazonTranscription) StartTranscriptionJob(jobName, audioLocation, resu
 		LanguageCode:         aws.String("en-US"),     // Set to the language of your audio file
 		MediaFormat:          aws.String(mediaFormat), // Set to the format of your audio file
 		Media: &transcribeservice.Media{
-			MediaFileUri: aws.String(audioLocation),
+			MediaFileUri: aws.String(fmt.Sprintf("s3://dragonspeak-files/%s", audioLocation)),
 		},
-		OutputBucketName: aws.String(resultLocation),
+		Settings: &transcribeservice.Settings{
+			ShowAlternatives: aws.Bool(false),
+		},
+		OutputBucketName: aws.String(t.outputBucket),
+		OutputKey:        &resultLocation,
 	})
 
 	return err

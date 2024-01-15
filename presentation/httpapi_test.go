@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/EdgarH78/dragonspeak-service/models"
 	"github.com/gin-gonic/gin"
@@ -104,9 +105,12 @@ func (m *MockTranscriptionManager) GetTranscriptsForSession(ctx context.Context,
 	return args.Get(0).([]models.Transcript), nil
 }
 
-func (m *MockTranscriptionManager) DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) error {
+func (m *MockTranscriptionManager) DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) (int64, error) {
 	args := m.Called(ctx, jobID, w)
-	return args.Error(0)
+	if args.Error(1) != nil {
+		return 0, args.Error(1)
+	}
+	return args.Get(0).(int64), nil
 }
 
 func TestAddUser(t *testing.T) {
@@ -216,7 +220,7 @@ func TestAddUser(t *testing.T) {
 	}
 }
 
-func TestGetUserByEmail(t *testing.T) {
+func TestGetUserByID(t *testing.T) {
 	cases := []struct {
 		description           string
 		userID                string
@@ -523,6 +527,673 @@ func TestGetCampaigns(t *testing.T) {
 					assert.Equal(t, expected.Link, actual.Link)
 					assert.Equal(t, expected.ID, actual.ID)
 				}
+
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestAddSession(t *testing.T) {
+	cases := []struct {
+		description             string
+		userID                  string
+		campaignID              string
+		session                 *models.Session
+		managerSessionResponse  *models.Session
+		managerError            error
+		expectedSessionResponse *SessionResponse
+		expectedErrorResponse   *ErrorResponse
+		expectedStatusCode      int
+	}{
+		{
+			description: "session added",
+			userID:      "abc123",
+			campaignID:  "efg456",
+			session: &models.Session{
+				Title:       "session-0",
+				SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+			},
+			managerSessionResponse: &models.Session{
+				ID:          "sesUUID",
+				Title:       "session-0",
+				SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+			},
+			expectedSessionResponse: &SessionResponse{
+				ID:          "sesUUID",
+				Title:       "session-0",
+				SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+			},
+			expectedStatusCode: http.StatusCreated,
+		},
+		{
+			description: "session manager returns error unprocessable entity",
+			userID:      "abc123",
+			campaignID:  "efg456",
+			session: &models.Session{
+				Title:       "session-0",
+				SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+			},
+			managerError: models.InvalidEntity,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Invalid Request",
+			},
+			expectedStatusCode: http.StatusUnprocessableEntity,
+		},
+		{
+			description: "session manager returns generic error, Internal Server error returned",
+			userID:      "abc123",
+			campaignID:  "efg456",
+			session: &models.Session{
+				Title:       "session-0",
+				SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+			},
+			managerError: fmt.Errorf("database connection failed"),
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			if c.expectedSessionResponse != nil {
+				sessionManager.On("AddSession", mock.Anything, c.campaignID, mock.Anything).Return(c.managerSessionResponse, nil)
+			} else if c.managerError != nil {
+				sessionManager.On("AddSession", mock.Anything, mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			sessionBody, err := json.Marshal(c.session)
+			if err != nil {
+				t.Errorf("unexpected error marshaling cage to json: %s", err)
+				return
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("POST", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions", c.userID, c.campaignID), bytes.NewReader(sessionBody))
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedSessionResponse != nil {
+				var actualSessionResponse SessionResponse
+				err = json.Unmarshal(w.Body.Bytes(), &actualSessionResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+
+				assert.Equal(t, c.expectedSessionResponse.Title, actualSessionResponse.Title)
+				assert.Equal(t, c.expectedSessionResponse.SessionDate, actualSessionResponse.SessionDate)
+				assert.Equal(t, c.expectedSessionResponse.ID, actualSessionResponse.ID)
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err = json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestGetSessionsForCampaign(t *testing.T) {
+	cases := []struct {
+		description              string
+		userID                   string
+		campaignID               string
+		managerSessionssResponse []models.Session
+		managerError             error
+		expectedSessionsResponse []SessionResponse
+		expectedErrorResponse    *ErrorResponse
+		expectedStatusCode       int
+	}{
+		{
+			description: "sessions returned",
+			userID:      "abc123",
+			campaignID:  "cmp123",
+			managerSessionssResponse: []models.Session{
+				{
+					ID:          "ses123",
+					Title:       "sesion0",
+					SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:          "ses456",
+					Title:       "session1",
+					SessionDate: time.Date(2024, time.January, 21, 19, 0, 0, 0, time.UTC),
+				},
+			},
+			expectedSessionsResponse: []SessionResponse{
+				{
+					ID:          "ses123",
+					Title:       "sesion0",
+					SessionDate: time.Date(2024, time.January, 14, 19, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:          "ses456",
+					Title:       "session1",
+					SessionDate: time.Date(2024, time.January, 21, 19, 0, 0, 0, time.UTC),
+				},
+			},
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			description:        "sessions not found",
+			userID:             "abc123",
+			campaignID:         "cmp123",
+			managerError:       models.EntityNotFound,
+			expectedStatusCode: http.StatusNotFound,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Not Found",
+			},
+		},
+		{
+			description:        "internal server error",
+			userID:             "abc123",
+			campaignID:         "cmp123",
+			managerError:       fmt.Errorf("an error has occurred"),
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			if c.expectedSessionsResponse != nil {
+				sessionManager.On("GetSessionsForCampaign", mock.Anything, c.campaignID).Return(c.managerSessionssResponse, nil)
+			} else if c.managerError != nil {
+				sessionManager.On("GetSessionsForCampaign", mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("GET", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions", c.userID, c.campaignID), nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedSessionsResponse != nil {
+				var actualSessionsResponse []SessionResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualSessionsResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				if len(c.expectedSessionsResponse) != len(actualSessionsResponse) {
+					t.Errorf("expected %d campaigns got %d", len(c.expectedSessionsResponse), len(actualSessionsResponse))
+					return
+				}
+
+				for i, expected := range c.expectedSessionsResponse {
+					actual := actualSessionsResponse[i]
+					assert.Equal(t, expected.Title, actual.Title)
+					assert.Equal(t, expected.SessionDate, actual.SessionDate)
+					assert.Equal(t, expected.ID, actual.ID)
+				}
+
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestSubmitTranscriptJob(t *testing.T) {
+	cases := []struct {
+		description                string
+		userID                     string
+		campaignID                 string
+		sessionID                  string
+		audioFile                  []byte
+		contentType                string
+		managerTranscriptResponse  *models.Transcript
+		managerError               error
+		expectedTranscriptResponse *TranscriptResponse
+		expectedErrorResponse      *ErrorResponse
+		expectedStatusCode         int
+	}{
+		{
+			description: "session added",
+			userID:      "abc123",
+			campaignID:  "efg456",
+			sessionID:   "ses123",
+			audioFile:   []byte("test audio"),
+			contentType: "audio/mpeg",
+			managerTranscriptResponse: &models.Transcript{
+				JobID:              "ts123",
+				AudioLocation:      "audio.mp3",
+				AudioFormat:        models.MP3,
+				TranscriptLocation: "tx.text",
+				SummaryLocation:    "",
+				Status:             models.NotStarted,
+			},
+			expectedTranscriptResponse: &TranscriptResponse{
+				ID:     "ts123",
+				Status: "NotStarted",
+			},
+			expectedStatusCode: http.StatusCreated,
+		},
+		{
+			description:  "transcript manager returns error unprocessable entity",
+			userID:       "abc123",
+			campaignID:   "efg456",
+			audioFile:    []byte("test audio"),
+			contentType:  "audio/mpeg",
+			managerError: models.InvalidEntity,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Invalid Request",
+			},
+			expectedStatusCode: http.StatusUnprocessableEntity,
+		},
+		{
+			description:  "session manager returns generic error, Internal Server error returned",
+			userID:       "abc123",
+			campaignID:   "efg456",
+			audioFile:    []byte("test audio"),
+			contentType:  "audio/mpeg",
+			managerError: fmt.Errorf("database connection failed"),
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			//SubmitTranscriptionJob(ctx context.Context, userID, campaignID, sessionID string, audioFormat models.AudioFormat, audioFile io.Reader) (*models.Transcript, error)
+			if c.managerTranscriptResponse != nil {
+				transcriptionManager.On("SubmitTranscriptionJob", mock.Anything, c.userID, c.campaignID, c.sessionID, mock.Anything, mock.Anything).Return(c.managerTranscriptResponse, nil)
+			} else if c.managerError != nil {
+				transcriptionManager.On("SubmitTranscriptionJob", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("POST", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions/%s/transcripts", c.userID, c.campaignID, c.sessionID), bytes.NewReader(c.audioFile))
+			req.Header.Set("Content-Type", c.contentType)
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedTranscriptResponse != nil {
+				var actualTranscriptResponse TranscriptResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualTranscriptResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+
+				assert.Equal(t, c.expectedTranscriptResponse.Status, actualTranscriptResponse.Status)
+				assert.Equal(t, c.expectedTranscriptResponse.ID, actualTranscriptResponse.ID)
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestGetTranscriptJob(t *testing.T) {
+	cases := []struct {
+		description               string
+		userID                    string
+		campaignID                string
+		sessionID                 string
+		jobID                     string
+		managerTranscriptResponse *models.Transcript
+		managerError              error
+		expectedTranscriptReponse *TranscriptResponse
+		expectedErrorResponse     *ErrorResponse
+		expectedStatusCode        int
+	}{
+		{
+			description: "transcript job returned",
+			userID:      "testUID",
+			campaignID:  "cmp123",
+			sessionID:   "ses123",
+			jobID:       "job123",
+			managerTranscriptResponse: &models.Transcript{
+				JobID:              "ts123",
+				AudioLocation:      "audio.mp3",
+				AudioFormat:        models.MP3,
+				TranscriptLocation: "tx.text",
+				SummaryLocation:    "",
+				Status:             models.Summarizing,
+			},
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			description:        "transcript not found",
+			userID:             "testUID",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			jobID:              "job123",
+			managerError:       models.EntityNotFound,
+			expectedStatusCode: http.StatusNotFound,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Not Found",
+			},
+		},
+		{
+			description:        "internal server error",
+			userID:             "testUID",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			jobID:              "job123",
+			managerError:       fmt.Errorf("could not connect to database"),
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			if c.managerTranscriptResponse != nil {
+				transcriptionManager.On("GetTranscriptJob", mock.Anything, c.jobID).Return(c.managerTranscriptResponse, nil)
+			} else if c.managerError != nil {
+				transcriptionManager.On("GetTranscriptJob", mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("GET", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions/%s/transcripts/%s", c.userID, c.campaignID, c.sessionID, c.jobID), nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedTranscriptReponse != nil {
+				var actualTranscriptResponse TranscriptResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualTranscriptResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+
+				assert.Equal(t, c.expectedTranscriptReponse.Status, actualTranscriptResponse.Status)
+				assert.Equal(t, c.expectedTranscriptReponse.ID, actualTranscriptResponse.ID)
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestGetJobsForSession(t *testing.T) {
+	cases := []struct {
+		description                 string
+		userID                      string
+		campaignID                  string
+		sessionID                   string
+		managerTranscriptsResponse  []models.Transcript
+		managerError                error
+		expectedTranscriptsResponse []TranscriptResponse
+		expectedErrorResponse       *ErrorResponse
+		expectedStatusCode          int
+	}{
+		{
+			description: "sessions returned",
+			userID:      "abc123",
+			campaignID:  "cmp123",
+			sessionID:   "ses123",
+			managerTranscriptsResponse: []models.Transcript{
+				{
+					JobID:              "ts123",
+					AudioLocation:      "audio.mp3",
+					AudioFormat:        models.MP3,
+					TranscriptLocation: "tx.text",
+					SummaryLocation:    "",
+					Status:             models.Summarizing,
+				},
+				{
+					JobID:              "ts456",
+					AudioLocation:      "audio.mp3",
+					AudioFormat:        models.MP3,
+					TranscriptLocation: "tx.text",
+					SummaryLocation:    "",
+					Status:             models.Done,
+				},
+			},
+			expectedTranscriptsResponse: []TranscriptResponse{
+				{
+					ID:     "ts123",
+					Status: "Summarizing",
+				},
+				{
+					ID:     "ts456",
+					Status: "Done",
+				},
+			},
+
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			description:        "sessions not found",
+			userID:             "abc123",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			managerError:       models.EntityNotFound,
+			expectedStatusCode: http.StatusNotFound,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Not Found",
+			},
+		},
+		{
+			description:        "internal server error",
+			userID:             "abc123",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			managerError:       fmt.Errorf("an error has occurred"),
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			if c.managerTranscriptsResponse != nil {
+				transcriptionManager.On("GetTranscriptsForSession", mock.Anything, c.sessionID).Return(c.managerTranscriptsResponse, nil)
+			} else if c.managerError != nil {
+				transcriptionManager.On("GetTranscriptsForSession", mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("GET", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions/%s/transcripts", c.userID, c.campaignID, c.sessionID), nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedTranscriptsResponse != nil {
+				var actualTranscriptsResponse []TranscriptResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualTranscriptsResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				if len(c.expectedTranscriptsResponse) != len(actualTranscriptsResponse) {
+					t.Errorf("expected %d campaigns got %d", len(c.expectedTranscriptsResponse), len(actualTranscriptsResponse))
+					return
+				}
+
+				for i, expected := range c.expectedTranscriptsResponse {
+					actual := actualTranscriptsResponse[i]
+					assert.Equal(t, expected.Status, actual.Status)
+					assert.Equal(t, expected.ID, actual.ID)
+				}
+
+			} else if c.expectedErrorResponse != nil {
+				var actualErrorResponse ErrorResponse
+				err := json.Unmarshal(w.Body.Bytes(), &actualErrorResponse)
+				if err != nil {
+					t.Fatalf("unexpected error when unmarshalling response: %s", err)
+					return
+				}
+				assert.Equal(t, c.expectedErrorResponse.ErrorMessage, actualErrorResponse.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestGetTranscript(t *testing.T) {
+	cases := []struct {
+		description            string
+		userID                 string
+		campaignID             string
+		sessionID              string
+		jobID                  string
+		managerTranscriptText  string
+		managerError           error
+		expectedTranscriptText string
+		expectedErrorResponse  *ErrorResponse
+		expectedStatusCode     int
+	}{
+		{
+			description:            "transcript text returned",
+			userID:                 "testUID",
+			campaignID:             "cmp123",
+			sessionID:              "ses123",
+			jobID:                  "job123",
+			managerTranscriptText:  "welcome to dnd",
+			expectedTranscriptText: "welcome to dnd",
+			expectedStatusCode:     http.StatusOK,
+		},
+		{
+			description:        "transcript not found",
+			userID:             "testUID",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			jobID:              "job123",
+			managerError:       models.EntityNotFound,
+			expectedStatusCode: http.StatusNotFound,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Not Found",
+			},
+		},
+		{
+			description:        "internal server error",
+			userID:             "testUID",
+			campaignID:         "cmp123",
+			sessionID:          "ses123",
+			jobID:              "job123",
+			managerError:       fmt.Errorf("could not connect to database"),
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedErrorResponse: &ErrorResponse{
+				ErrorMessage: "Internal Server Error",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			r := gin.Default()
+			userManager := &MockUserManager{}
+			campaignManager := &MockCampaignManager{}
+			sessionManager := &MockSessionManager{}
+			transcriptionManager := &MockTranscriptionManager{}
+
+			NewHttpAPI(r, userManager, campaignManager, sessionManager, transcriptionManager)
+			if c.managerTranscriptText != "" {
+				transcriptionManager.On("DownloadTranscript", mock.Anything, c.jobID, mock.Anything).Run(func(args mock.Arguments) {
+					w := args.Get(2).(io.WriterAt)
+					w.WriteAt([]byte(c.managerTranscriptText), 0)
+				}).Return(int64(len(c.managerTranscriptText)), nil)
+			} else if c.managerError != nil {
+				transcriptionManager.On("DownloadTranscript", mock.Anything, mock.Anything, mock.Anything).Return(nil, c.managerError)
+			}
+
+			w := httptest.NewRecorder()
+
+			req, _ := http.NewRequest("GET", fmt.Sprintf("/dragonspeak-service/v1/users/%s/campaigns/%s/sessions/%s/transcripts/%s/fulltext", c.userID, c.campaignID, c.sessionID, c.jobID), nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != c.expectedStatusCode {
+				t.Errorf("expected status code %d got %d", c.expectedStatusCode, w.Code)
+				return
+			}
+			if c.expectedTranscriptText != "" {
+				actualText := string(w.Body.Bytes())
+				assert.Equal(t, c.expectedTranscriptText, actualText)
 
 			} else if c.expectedErrorResponse != nil {
 				var actualErrorResponse ErrorResponse

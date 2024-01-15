@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/EdgarH78/dragonspeak-service/models"
+	"github.com/google/uuid"
 )
 
 type transcriptionProvider interface {
@@ -27,6 +28,14 @@ type uuidProvider interface {
 	NewUUID() string
 }
 
+type DefaultUUIDProvider struct {
+}
+
+func (d *DefaultUUIDProvider) NewUUID() string {
+	uuid, _ := uuid.NewUUID()
+	return uuid.String()
+}
+
 type TranscriptionManager struct {
 	bucket                string
 	transcriptionProvider transcriptionProvider
@@ -46,9 +55,9 @@ func NewTranscriptionManager(bucket string, transcriptionProvider transcriptionP
 }
 
 func (t *TranscriptionManager) SubmitTranscriptionJob(ctx context.Context, userID, campaignID, sessionID string, audioFormat models.AudioFormat, audioFile io.Reader) (*models.Transcript, error) {
-	jobID := fmt.Sprintf("%s-%s", sessionID, t.uuidProvider.NewUUID())
-	audioLocation := fmt.Sprintf("%s/%s/%s/audio-%s", userID, campaignID, sessionID, t.uuidProvider.NewUUID())
-	transcriptLocation := fmt.Sprintf("%s/%s/%s/transcript-%s", userID, campaignID, sessionID, t.uuidProvider.NewUUID())
+	jobID := t.uuidProvider.NewUUID()
+	audioLocation := fmt.Sprintf("audio-%s", t.uuidProvider.NewUUID())
+	transcriptLocation := fmt.Sprintf("transcript-%s", t.uuidProvider.NewUUID())
 	transcriptionJob := models.Transcript{
 		JobID:              jobID,
 		AudioLocation:      audioLocation,
@@ -81,14 +90,14 @@ func (t *TranscriptionManager) GetTranscriptsForSession(ctx context.Context, ses
 	return t.transcriptionDb.GetTranscriptsForSession(ctx, sessionID)
 }
 
-func (t *TranscriptionManager) DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) error {
+func (t *TranscriptionManager) DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) (int64, error) {
 	transcript, err := t.transcriptionDb.GetTranscript(ctx, jobID)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, err = t.fileStore.DownloadData(t.bucket, transcript.TranscriptLocation, w)
+	bytesWritten, err := t.fileStore.DownloadData(t.bucket, transcript.TranscriptLocation, w)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return nil
+	return bytesWritten, nil
 }

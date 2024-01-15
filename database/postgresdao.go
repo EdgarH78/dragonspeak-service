@@ -80,7 +80,7 @@ func (dao *PostgresDao) GetUserByEmail(ctx context.Context, email string) (*mode
 }
 
 func (dao *PostgresDao) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
-	qs := `SELECT UesrId, Handle, Email
+	qs := `SELECT UserId, Handle, Email
 			FROM Users
 			WHERE UserId=$1`
 	rows, err := dao.db.QueryContext(ctx, qs, userID)
@@ -124,7 +124,7 @@ func (dao *PostgresDao) AddCampaign(ctx context.Context, ownerID string, campaig
 // GetAllCampaignsForUser retrieves all campaigns for a specific user
 func (dao *PostgresDao) GetCampaignsForUser(ctx context.Context, ownerID string) ([]models.Campaign, error) {
 	qs := ` SELECT c.CampaignId, c.CampaignName, c.CampaignLink
-			FROM Campaign c
+			FROM Campaigns c
 			JOIN Users u on u.UserKey=c.OwnerUserId
 			WHERE u.UserId=$1
 	`
@@ -260,7 +260,7 @@ func (dao *PostgresDao) AddSession(ctx context.Context, campaignID string, sessi
 func (dao *PostgresDao) GetSessionsForCampaign(ctx context.Context, campaignID string) ([]models.Session, error) {
 	qs := `SELECT s.SessionId, s.SessionDate, s.Title
 		   FROM Sessions s 
-		   JOIN Campaign c ON c.CampaignKey = s.CampaignKey 
+		   JOIN Campaigns c ON c.CampaignKey = s.CampaignKey 
 		   WHERE c.CampaignId = $1`
 
 	rows, err := dao.db.QueryContext(ctx, qs, campaignID)
@@ -285,7 +285,7 @@ func (dao *PostgresDao) AddTranscriptToSession(ctx context.Context, sessionID st
 				   SELECT SessionKey, $1, $2, $3, $4, $5, $6
 				   FROM Sessions 
 				   WHERE SessionId=$7`
-	_, err := dao.db.ExecContext(ctx, insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat.String(), transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String())
+	_, err := dao.db.ExecContext(ctx, insertStmt, transcript.JobID, transcript.AudioLocation, transcript.AudioFormat.String(), transcript.TranscriptLocation, transcript.SummaryLocation, transcript.Status.String(), sessionID)
 	if err != nil {
 		return nil, err
 	}

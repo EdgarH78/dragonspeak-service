@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/EdgarH78/dragonspeak-service/models"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/gin-gonic/gin"
 )
 
@@ -63,6 +65,32 @@ func CampaignResponseFromCampaign(campaign *models.Campaign) CampaignResponse {
 	}
 }
 
+type CreateSessionRequest struct {
+	SessionDate time.Time `json:"sessionDate"`
+	Title       string    `json:"title"`
+}
+
+func (c CreateSessionRequest) toSession() models.Session {
+	return models.Session{
+		SessionDate: c.SessionDate,
+		Title:       c.Title,
+	}
+}
+
+type SessionResponse struct {
+	ID          string    `json:"id"`
+	SessionDate time.Time `json:"sessionDate"`
+	Title       string    `json:"title"`
+}
+
+func SessionResponseFromSession(session *models.Session) SessionResponse {
+	return SessionResponse{
+		ID:          session.ID,
+		Title:       session.Title,
+		SessionDate: session.SessionDate,
+	}
+}
+
 type TranscriptResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
@@ -98,11 +126,12 @@ type transcriptionManager interface {
 	SubmitTranscriptionJob(ctx context.Context, userID, campaignID, sessionID string, audioFormat models.AudioFormat, audioFile io.Reader) (*models.Transcript, error)
 	GetTranscriptJob(ctx context.Context, jobID string) (*models.Transcript, error)
 	GetTranscriptsForSession(ctx context.Context, sessionID string) ([]models.Transcript, error)
-	DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) error
+	DownloadTranscript(ctx context.Context, jobID string, w io.WriterAt) (int64, error)
 }
 
 var (
-	baseUrl = "dragonspeak-service"
+	baseUrl             = "dragonspeak-service"
+	maxFileDownloadSize = 10 * 1024 * 1024
 )
 
 type HttpAPI struct {
@@ -135,6 +164,12 @@ func (api *HttpAPI) registerHandlers() {
 	api.engine.GET(baseUrl+"/v1/users/:userId", api.GetUserByID)
 	api.engine.POST(baseUrl+"/v1/users/:userId/campaigns", api.AddCampaign)
 	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns", api.GetCampaigns)
+	api.engine.POST(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions", api.AddSession)
+	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions", api.GetSessions)
+	api.engine.POST(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions/:sessionId/transcripts", api.SubmitTranscriptionJob)
+	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions/:sessionId/transcripts", api.GetTranscriptJobs)
+	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions/:sessionId/transcripts/:jobId", api.GetTranscriptJob)
+	api.engine.GET(baseUrl+"/v1/users/:userId/campaigns/:campaignId/sessions/:sessionId/transcripts/:jobId/fulltext", api.GetTranscriptFullText)
 }
 
 func (api *HttpAPI) AddUser(c *gin.Context) {
@@ -194,6 +229,107 @@ func (api *HttpAPI) GetCampaigns(c *gin.Context) {
 		response = append(response, CampaignResponseFromCampaign(&campaign))
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+func (api *HttpAPI) AddSession(c *gin.Context) {
+	campaignID := c.Param("campaignId")
+	var session CreateSessionRequest
+	err := json.NewDecoder(c.Request.Body).Decode(&session)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, ErrorResponse{
+			ErrorMessage: "Request body is in the incorrect format",
+		})
+	}
+	addedSession, err := api.sessionManager.AddSession(c.Request.Context(), campaignID, session.toSession())
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, SessionResponseFromSession(addedSession))
+}
+
+func (api *HttpAPI) GetSessions(c *gin.Context) {
+	campaignID := c.Param("campaignId")
+	sessions, err := api.sessionManager.GetSessionsForCampaign(c.Request.Context(), campaignID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	response := []SessionResponse{}
+	for _, session := range sessions {
+		response = append(response, SessionResponseFromSession(&session))
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (api *HttpAPI) SubmitTranscriptionJob(c *gin.Context) {
+	userID := c.Param("userId")
+	campaignID := c.Param("campaignId")
+	sessionID := c.Param("sessionId")
+	fileType := c.Request.Header.Get("Content-Type")
+	audioFormat, err := contentTypeToAudioType(fileType)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, ErrorResponse{
+			ErrorMessage: "Unprocessable Entity. Content-Type: %s not supported. Supported types are \"audio/mpeg\", \"audio/webm\", \"audio/ogg\"",
+		})
+		return
+	}
+	job, err := api.transcriptionManager.SubmitTranscriptionJob(c.Request.Context(), userID, campaignID, sessionID, audioFormat, c.Request.Body)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, TranscriptResponseFromTranscript(job))
+}
+
+func (api *HttpAPI) GetTranscriptJob(c *gin.Context) {
+	jobID := c.Param("jobId")
+	job, err := api.transcriptionManager.GetTranscriptJob(c.Request.Context(), jobID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, TranscriptResponseFromTranscript(job))
+}
+
+func (api *HttpAPI) GetTranscriptJobs(c *gin.Context) {
+	sessionID := c.Param("sessionId")
+	transcripts, err := api.transcriptionManager.GetTranscriptsForSession(c.Request.Context(), sessionID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	response := []TranscriptResponse{}
+	for _, transcript := range transcripts {
+		response = append(response, TranscriptResponseFromTranscript(&transcript))
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (api *HttpAPI) GetTranscriptFullText(c *gin.Context) {
+	jobID := c.Param("jobId")
+
+	buf := make([]byte, 100)
+	writeBuffer := aws.NewWriteAtBuffer(buf)
+	bytesWritten, err := api.transcriptionManager.DownloadTranscript(c.Request.Context(), jobID, writeBuffer)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	c.String(http.StatusOK, string(writeBuffer.Bytes()[:bytesWritten]))
+}
+
+func contentTypeToAudioType(contentType string) (models.AudioFormat, error) {
+	switch contentType {
+	case "audio/mpeg":
+		return models.MP3, nil
+	case "audio/webm":
+		return models.WebM, nil
+	case "audio/ogg":
+		return models.OGG, nil
+	}
+	return 0, models.InvalidEntity
 }
 
 func handleError(c *gin.Context, err error) {
